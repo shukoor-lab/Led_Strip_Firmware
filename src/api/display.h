@@ -9,7 +9,13 @@
 
 typedef enum {
     ANIM_OFF = 0,
-    ANIM_BLINK
+    ANIM_BLINK,
+    ANIM_RAINBOW,
+    ANIM_THEATER,
+    ANIM_FIRE,
+    ANIM_WATER,
+    ANIM_PACKETS,
+    TOTAL_ANIMS
 } anim_t;
 
 /* ============================= */
@@ -23,5 +29,7 @@ void display_update(void);
 
 /* Change current animation */
 void display_set_animation(anim_t anim);
+
+anim_t display_get_animation(void);
 
 #endif
