@@ -1,38 +1,103 @@
-#ifndef DISPLAY_H
-#define DISPLAY_H
-
-#include <stdint.h>
+#include "display.h"
+#include "ws2812b.h"
 
 /* ============================= */
-/* Configuration                 */
+/* Private State                 */
 /* ============================= */
 
-#define LED_COUNT 16
+static anim_t current_anim = ANIM_OFF;
+static anim_t previous_anim = ANIM_OFF;
+
+static uint16_t anim_tick = 0;
 
 /* ============================= */
-/* Animation Type (Public)       */
+/* Function Declaration          */
 /* ============================= */
 
-typedef enum {
-    ANIM_OFF = 0,
-    ANIM_BLINK
-} anim_t;
+static void render_anim_off(void);
+static void render_anim_blink(void);
 
 /* ============================= */
-/* Public Framebuffer            */
+/* Animation Tick Lengths       */
 /* ============================= */
 
-/* Format: led_buffer[led_index][0=R,1=G,2=B] */
-extern uint8_t led_buffer[LED_COUNT][3];
+#define OFF_TICK_LEN     1
+#define BLINK_TICK_LEN   100   /* 100 * 10ms = 1 second */
 
 /* ============================= */
 /* Public API                    */
 /* ============================= */
 
-/* Call every 10ms */
-void display_update(void);
+void display_init(void) {
+    ws2812_init();
+    display_set_animation(ANIM_OFF);
+}
 
-/* Change current animation */
-void display_set_animation(anim_t anim);
+void display_set_animation(anim_t anim)
+{
+    current_anim = anim;
+}
 
-#endif
+void display_update(void)
+{
+    /* Detect animation change */
+    if (current_anim != previous_anim)
+    {
+        anim_tick = 0;              /* Reset tick on animation change */
+        previous_anim = current_anim;
+    }
+
+    /* Dispatch correct animation */
+    switch (current_anim)
+    {
+        case ANIM_OFF:
+            render_anim_off();
+            break;
+
+        case ANIM_BLINK:
+            render_anim_blink();
+            break;
+
+        default:
+            render_anim_off();
+            break;
+    }
+    ws2812_show();
+}
+
+/* ============================= */
+/* Animation Renderers           */
+/* ============================= */
+
+static void render_anim_off(void)
+{
+    ws2812_clear();
+
+    anim_tick++;
+    if (anim_tick >= OFF_TICK_LEN)
+    {
+        anim_tick = 0;
+    }
+}
+
+static void render_anim_blink(void)
+{
+    /* Blink red ON for half period, OFF for half period */
+
+    if (anim_tick < (BLINK_TICK_LEN / 2))
+    {
+        ws2812_set_pixel(0, 255, 0, 0); // Red
+    }
+    else
+    {
+        /* LEDs OFF */
+        ws2812_set_pixel(0, 0, 0, 0);
+    }
+
+    anim_tick++;
+    if (anim_tick >= BLINK_TICK_LEN)
+    {
+        anim_tick = 0;
+    }
+}
+

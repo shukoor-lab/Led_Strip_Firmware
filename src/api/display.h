@@ -1,13 +1,7 @@
 #ifndef DISPLAY_H
 #define DISPLAY_H
 
-#include <stdint.h>
-
-/* ============================= */
-/* Configuration                 */
-/* ============================= */
-
-#define LED_COUNT 16
+#include <avr/io.h>
 
 /* ============================= */
 /* Animation Type (Public)       */
@@ -19,15 +13,10 @@ typedef enum {
 } anim_t;
 
 /* ============================= */
-/* Public Framebuffer            */
-/* ============================= */
-
-/* Format: led_buffer[led_index][0=R,1=G,2=B] */
-extern uint8_t led_buffer[LED_COUNT][3];
-
-/* ============================= */
 /* Public API                    */
 /* ============================= */
+
+void display_init(void);
 
 /* Call every 10ms */
 void display_update(void);

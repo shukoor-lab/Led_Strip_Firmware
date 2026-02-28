@@ -2,8 +2,6 @@
 #define IR_H_
 
 #include <avr/io.h>
-#include <util/delay.h>
-#include "adc.h"
 
 extern uint16_t IR1_value;
 extern uint16_t IR2_value;
