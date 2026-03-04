@@ -21,6 +21,12 @@ static void render_anim_theater(void);
 static void render_anim_fire(void);
 static void render_anim_water(void);
 static void render_anim_packets(void);
+static void render_anim_bleed(void);
+static void render_anim_stars(void);
+static void render_anim_aurora(void);
+static void render_anim_moon(void);
+static void render_anim_firecracker(void);
+static void render_anim_sunrise(void);
 
 /* ============================= */
 /* Animation Tick Lengths       */
@@ -34,6 +40,8 @@ static void render_anim_packets(void);
 #define COLOR_BOUNCE_TICK_LEN 160
 #define WATER_TICK_LEN 255
 #define PACKET_TICK_LEN  238
+#define BLEED_TICK_LEN           3000
+#define STAR_TICK_LEN           60000
 
 /* ============================= */
 /* Public API                    */
@@ -92,6 +100,30 @@ void display_update(void)
 
         case ANIM_PACKETS:
             render_anim_packets();
+            break;
+
+        case ANIM_BLEED:
+            render_anim_bleed();
+            break;
+
+        case ANIM_STARS:
+            render_anim_stars();
+            break;
+
+        case ANIM_AURORA:
+            render_anim_aurora();
+            break;
+
+        case ANIM_MOON:
+            render_anim_moon();
+            break;
+
+        case ANIM_FIRECRACKER:
+            render_anim_firecracker();
+            break;
+
+        case ANIM_SUNRISE:
+            render_anim_sunrise();
             break;
 
         default:
@@ -200,6 +232,8 @@ static void render_anim_theater(void)
     if (anim_tick >= THEATER_TICK_LEN)
         anim_tick = 0;
 }
+
+/* --------------------------------------------------------------------------------------------------------- */
 
 static uint16_t lfsr = 0xACE1u;
 
@@ -312,6 +346,8 @@ static void render_anim_fire(void)
         anim_tick = 0;
 }
 
+/* --------------------------------------------------------------------------------------------------------- */
+
 static uint8_t water_energy = 10;   // small dynamic variation
 
 static uint8_t triwave(uint8_t x)
@@ -404,11 +440,17 @@ static void render_anim_water(void)
         anim_tick = 0;
 }
 
+/* --------------------------------------------------------------------------------------------------------- */
+
 #define PACKET_LEN       3
 
 static void render_anim_packets(void)
 {
     uint8_t pointer[3] = {0, 14, 28};
+
+    if(anim_tick == 0){
+        ws2812_clear();
+    }
 
     uint8_t idx = anim_tick / 2.5;
 
@@ -451,3 +493,693 @@ static void render_anim_packets(void)
         anim_tick = 203;
     }
 }
+
+/* --------------------------------------------------------------------------------------------------------- */
+
+#define BLEED_MAX_GROW_LEN       30
+
+#define BLEED_GROW_STEP_FP       10     // 8/256 per tick (~0.03 LED per tick)
+                                       // smaller = slower smoother growth
+#define BLEED_WAIT_FULL_MIN      200   // 1 second
+#define BLEED_WAIT_FULL_MAX      500   // 2 seconds
+
+#define BLEED_WAIT_EMPTY_MIN     300   // 2 second
+#define BLEED_WAIT_EMPTY_MAX     600   // 5 seconds
+
+static uint8_t  bleed_center = 0;
+static uint16_t bleed_radius_fp = 0;   // 8.8 fixed point
+static uint8_t  bleed_target = 0;
+static uint8_t  bleed_phase = 3;       // 0=grow,1=wait_full,2=shrink,3=wait_empty
+static uint16_t bleed_wait = 0;
+
+static void render_anim_bleed(void)
+{
+    ws2812_clear();
+
+    /* ------------ STATE MACHINE ------------ */
+
+    switch (bleed_phase)
+    {
+        case 3: // wait empty
+            if (bleed_wait > 0)
+            {
+                bleed_wait--;
+            }
+            else
+            {
+                bleed_center = fast_rand() % LED_COUNT;
+                bleed_target = 4 + (fast_rand() % BLEED_MAX_GROW_LEN);
+                bleed_radius_fp = 0;
+                bleed_phase = 0;
+            }
+            break;
+
+        case 0: // grow
+            bleed_radius_fp += BLEED_GROW_STEP_FP;
+
+            if (bleed_radius_fp >= ((uint16_t)bleed_target << 8))
+            {
+                bleed_radius_fp = ((uint16_t)bleed_target << 8);
+                bleed_phase = 1;
+
+                bleed_wait =
+                    BLEED_WAIT_FULL_MIN +
+                    (fast_rand() % (BLEED_WAIT_FULL_MAX - BLEED_WAIT_FULL_MIN));
+            }
+            break;
+
+        case 1: // wait full
+            if (bleed_wait > 0)
+                bleed_wait--;
+            else
+                bleed_phase = 2;
+            break;
+
+        case 2: // shrink
+            if (bleed_radius_fp > BLEED_GROW_STEP_FP)
+            {
+                bleed_radius_fp -= BLEED_GROW_STEP_FP;
+            }
+            else
+            {
+                bleed_radius_fp = 0;
+                bleed_phase = 3;
+
+                bleed_wait =
+                    BLEED_WAIT_EMPTY_MIN +
+                    (fast_rand() % (BLEED_WAIT_EMPTY_MAX - BLEED_WAIT_EMPTY_MIN));
+            }
+            break;
+    }
+
+    /* ------------ TRUE ANALOG RENDER ------------ */
+
+    if (bleed_phase != 3)
+    {
+        uint32_t max_radius_fp = (uint32_t)bleed_target << 8;
+
+        for (int16_t i = 0; i < LED_COUNT; i++)
+        {
+            int16_t dist = i - bleed_center;
+            if (dist < 0) dist = -dist;
+
+            uint32_t dist_fp = (uint32_t)dist << 8;
+
+            if (dist_fp < bleed_radius_fp)
+            {
+                /* Fractional strength */
+                uint32_t strength_fp = bleed_radius_fp - dist_fp;
+
+                /* Normalize against max radius */
+                uint32_t norm =
+                    (strength_fp * 255) / max_radius_fp;
+
+                /* Square for organic falloff */
+                uint8_t brightness =
+                    (uint32_t)norm * norm >> 8;
+
+                ws2812_set_pixel(i, brightness, 0, 0);
+            }
+        }
+    }
+
+    anim_tick++;
+    if (anim_tick >= BLEED_TICK_LEN)
+        anim_tick = 0;
+}
+
+/* --------------------------------------------------------------------------------------------------------- */
+
+#define STAR_MAX_COUNT          6
+
+#define STAR_MAX_BRIGHTNESS     4    // overall star brightness
+#define STAR_MIN_LIFE_TICKS     2500  // 25 sec
+#define STAR_MAX_LIFE_TICKS     5000  // 50 sec
+
+#define STAR_TWINKLE_SPEED      10     // small shimmer speed
+#define STAR_TWINKLE_DEPTH      4     // very slight flicker (keep small)
+
+#define STAR_SPAWN_CHANCE       1     // low probability per frame
+
+#define SHOOTING_STAR_BRIGHTNESS    2
+#define SHOOTING_STAR_SPEED_TICKS   1     // move every 1 ticks (10ms)
+#define SHOOTING_STAR_TAIL_LEN      1
+
+#define SHOOTING_STAR_MIN_COOLDOWN  30000   // 300s = 5 min
+#define SHOOTING_STAR_MAX_COOLDOWN  36000   // 360s = 6 min
+
+typedef struct
+{
+    uint8_t  active;
+    uint8_t  pos;
+    uint16_t age;
+    uint16_t life;
+    uint16_t phase;
+    uint8_t  base_brightness;
+} star_t;
+
+typedef struct
+{
+    uint8_t active;
+    int8_t  direction;      // +1 or -1
+    int16_t pos;
+    uint16_t move_tick;
+    uint16_t cooldown;
+} shooting_star_t;
+
+static shooting_star_t shoot = {0};
+
+static star_t stars[STAR_MAX_COUNT];
+
+static uint8_t star_position_is_free(uint8_t pos)
+{
+    for (uint8_t i = 0; i < STAR_MAX_COUNT; i++)
+    {
+        if (!stars[i].active)
+            continue;
+
+        int16_t diff = stars[i].pos - pos;
+        if (diff < 0) diff = -diff;
+
+        if (diff <= 2)
+            return 0;   // too close
+    }
+
+    return 1;
+}
+
+static uint8_t wave8(uint16_t x)
+{
+    x &= 0xFF;
+    return (x < 128) ? x : 255 - x;
+}
+
+static void render_anim_stars(void)
+{
+    ws2812_clear();  // pitch black always
+
+    /* ---------- RANDOM SPAWN ---------- */
+    if ((fast_rand() % 1000) < STAR_SPAWN_CHANCE)
+    {
+        for (uint8_t i = 0; i < STAR_MAX_COUNT; i++)
+        {
+            if (!stars[i].active)
+            {
+                uint8_t new_pos = fast_rand() % LED_COUNT;
+
+                if (!star_position_is_free(new_pos))
+                    break;   // reject spawn
+
+                stars[i].active = 1;
+                stars[i].pos = new_pos;
+                stars[i].age = 0;
+
+                stars[i].life =
+                    STAR_MIN_LIFE_TICKS +
+                    (fast_rand() %
+                    (STAR_MAX_LIFE_TICKS - STAR_MIN_LIFE_TICKS));
+
+                stars[i].phase = fast_rand();
+
+                stars[i].base_brightness =
+                    STAR_MAX_BRIGHTNESS *
+                    (70 + (fast_rand() % 30)) / 100;
+
+                break;
+            }
+        }
+    }
+
+    /* ---------- UPDATE STARS ---------- */
+    for (uint8_t i = 0; i < STAR_MAX_COUNT; i++)
+    {
+        if (!stars[i].active)
+            continue;
+
+        stars[i].age++;
+
+        if (stars[i].age >= stars[i].life)
+        {
+            stars[i].active = 0;   // disappear instantly
+            continue;
+        }
+
+        /* ---- slight twinkle (never off) ---- */
+        stars[i].phase += STAR_TWINKLE_SPEED;
+
+        uint8_t flicker = wave8(stars[i].phase);
+
+        uint8_t dip = (flicker * STAR_TWINKLE_DEPTH) / 255;
+
+        uint8_t brightness =
+            stars[i].base_brightness - dip;
+
+        ws2812_set_pixel(stars[i].pos,
+                         brightness,
+                         brightness,
+                         brightness);
+    }
+
+    /* ---------- SHOOTING STAR COOLDOWN ---------- */
+    if (!shoot.active)
+    {
+        if (shoot.cooldown > 0)
+        {
+            shoot.cooldown--;
+        }
+        else
+        {
+            /* spawn shooting star */
+            shoot.active = 1;
+            shoot.direction = (fast_rand() & 1) ? 1 : -1;
+
+            if (shoot.direction == 1)
+                shoot.pos = 0;
+            else
+                shoot.pos = 40;
+
+            shoot.move_tick = 0;
+
+            shoot.cooldown =
+                SHOOTING_STAR_MIN_COOLDOWN +
+                (fast_rand() %
+                (SHOOTING_STAR_MAX_COOLDOWN - SHOOTING_STAR_MIN_COOLDOWN));
+        }
+    }
+
+    /* ---------- SHOOTING STAR ACTIVE ---------- */
+    if (shoot.active)
+    {
+        shoot.move_tick++;
+
+        if (shoot.move_tick >= SHOOTING_STAR_SPEED_TICKS)
+        {
+            shoot.move_tick = 0;
+            shoot.pos += shoot.direction;
+        }
+
+        /* out of linear region? */
+        if (shoot.pos < 0 || shoot.pos > 40)
+        {
+            shoot.active = 0;
+        }
+        else
+        {
+            /* draw head */
+            ws2812_set_pixel(shoot.pos,
+                            SHOOTING_STAR_BRIGHTNESS,
+                            SHOOTING_STAR_BRIGHTNESS,
+                            SHOOTING_STAR_BRIGHTNESS);
+
+            /* draw tail */
+            for (uint8_t t = 1; t <= SHOOTING_STAR_TAIL_LEN; t++)
+            {
+                int16_t tail_pos =
+                    shoot.pos - (t * shoot.direction);
+
+                if (tail_pos >= 0 && tail_pos <= 40)
+                {
+                    uint8_t tail_brightness =
+                        SHOOTING_STAR_BRIGHTNESS *
+                        (SHOOTING_STAR_TAIL_LEN - t) /
+                        SHOOTING_STAR_TAIL_LEN;
+
+                    ws2812_set_pixel(tail_pos,
+                                    tail_brightness,
+                                    tail_brightness,
+                                    tail_brightness);
+                }
+            }
+        }
+    }
+
+    anim_tick++;
+    if (anim_tick >= STAR_TICK_LEN)
+        anim_tick = 0;
+}
+
+/* --------------------------------------------------------------------------------------------------------- */
+
+#define AURORA_TICK_LEN        65535
+
+#define AURORA_SPEED           1
+#define AURORA_INTENSITY       80
+#define AURORA_NOISE_DEPTH     25
+
+static uint8_t aurora_wave(uint16_t x)
+{
+    x &= 0xFF;
+    return (x < 128) ? x : 255 - x;
+}
+
+static void render_anim_aurora(void)
+{
+    ws2812_clear();
+
+    for (uint8_t i = 0; i < LED_COUNT; i++)
+    {
+        uint16_t motion = (i * 7) + (anim_tick * AURORA_SPEED);
+        uint8_t wave = aurora_wave(motion);
+
+        /* Organic turbulence */
+        uint8_t noise = fast_rand() & AURORA_NOISE_DEPTH;
+
+        uint8_t brightness = (wave >> 2) + noise;
+
+        if (brightness > AURORA_INTENSITY)
+            brightness = AURORA_INTENSITY;
+
+        /* Aurora color mix */
+        uint8_t r = brightness >> 4;             // very low red
+        uint8_t g = brightness;                  // strong green
+        uint8_t b = brightness >> 1;             // teal blend
+
+        /* Rare purple flick */
+        if ((fast_rand() & 0x3F) == 0)
+            r += brightness >> 2;
+
+        ws2812_set_pixel(i, r, g, b);
+    }
+
+    anim_tick++;
+}
+
+/* --------------------------------------------------------------------------------------------------------- */
+
+#define MOON_TICK_LEN       65535
+#define MOON_SPEED          1
+#define MOON_MAX_BRIGHT     20
+
+static uint8_t soft_wave(uint16_t x)
+{
+    x &= 0xFF;
+    return (x < 128) ? x : 255 - x;
+}
+
+static void render_anim_moon(void)
+{
+    ws2812_clear();
+
+    for (uint8_t i = 0; i < LED_COUNT; i++)
+    {
+        uint16_t drift = (i * 3) + (anim_tick * MOON_SPEED);
+
+        uint8_t wave = soft_wave(drift);
+
+        uint8_t brightness = (wave >> 4);
+
+        if (brightness > MOON_MAX_BRIGHT)
+            brightness = MOON_MAX_BRIGHT;
+
+        /* Slight shimmer */
+        brightness += fast_rand() & 0x01;
+
+        uint8_t r = brightness >> 2;
+        uint8_t g = brightness >> 1;
+        uint8_t b = brightness;
+
+        ws2812_set_pixel(i, r, g, b);
+    }
+
+    anim_tick++;
+}
+
+/* --------------------------------------------------------------------------------------------------------- */
+
+#define FIRECRACKER_TICK_LEN        65535
+
+#define ROCKET_SPEED_TICKS          2
+#define ROCKET_BRIGHTNESS           60
+
+#define SPARK_COUNT                 8
+#define SPARK_MAX_RADIUS            10
+#define SPARK_GROW_SPEED            1
+#define SPARK_FADE_SPEED            3
+
+#define FIRECRACKER_MIN_DELAY       200
+#define FIRECRACKER_MAX_DELAY       500 
+
+typedef struct
+{
+    uint8_t state;     // 0 idle, 1 rocket, 2 explode
+    uint16_t delay;
+
+    int16_t rocket_pos;
+    uint16_t move_tick;
+
+    uint8_t radius;
+    uint8_t max_radius;
+    uint8_t brightness;
+
+    int8_t spark_dir[SPARK_COUNT];   // small directions
+} firecracker_t;
+
+static firecracker_t fire = {0};
+
+static void render_anim_firecracker(void)
+{
+    ws2812_clear();
+
+    /* ---------- IDLE ---------- */
+    if (fire.state == 0)
+    {
+        if (fire.delay > 0)
+        {
+            fire.delay--;
+        }
+        else
+        {
+            fire.state = 1;
+            fire.rocket_pos = fast_rand() % 40;   // start in linear strip
+            fire.move_tick = 0;
+        }
+    }
+
+    /* ---------- ROCKET ---------- */
+    else if (fire.state == 1)
+    {
+        fire.move_tick++;
+
+        if (fire.move_tick >= ROCKET_SPEED_TICKS)
+        {
+            fire.move_tick = 0;
+            fire.rocket_pos++;
+        }
+
+        /* draw rocket */
+        if (fire.rocket_pos >= 0 && fire.rocket_pos <= 80)
+        {
+            ws2812_set_pixel(fire.rocket_pos,
+                             ROCKET_BRIGHTNESS,
+                             ROCKET_BRIGHTNESS / 2,
+                             0);
+        }
+
+        /* reached circle */
+        if (fire.rocket_pos >= 41)
+        {
+            fire.state = 2;
+
+            fire.radius = 0;
+            fire.max_radius = 4 + (fast_rand() % SPARK_MAX_RADIUS);
+            fire.brightness = 100;
+
+            /* random spark directions */
+            for (uint8_t i = 0; i < SPARK_COUNT; i++)
+            {
+                int8_t dir = (fast_rand() % 5) - 2;  // -2 to +2
+                if (dir == 0) dir = 1;
+                fire.spark_dir[i] = dir;
+            }
+        }
+    }
+
+    /* ---------- EXPLOSION (SPARKLE) ---------- */
+    else if (fire.state == 2)
+    {
+        int16_t center = fire.rocket_pos;
+
+        /* draw sparks */
+        for (uint8_t s = 0; s < SPARK_COUNT; s++)
+        {
+            int16_t spark_pos =
+                center + (fire.spark_dir[s] * fire.radius);
+
+            /* wrap inside circle region (41–80) */
+            if (spark_pos < 41)
+                spark_pos = 41 + (spark_pos - 41 + 40) % 40;
+
+            if (spark_pos > 80)
+                spark_pos = 41 + (spark_pos - 41) % 40;
+
+            if (spark_pos >= 41 && spark_pos <= 80)
+            {
+                uint8_t r = fire.brightness;
+                uint8_t g = fire.brightness >> 3;
+                uint8_t b = 0;
+
+                ws2812_set_pixel(spark_pos, r, g, b);
+            }
+        }
+
+        /* grow outward */
+        if (fire.radius < fire.max_radius)
+        {
+            fire.radius += SPARK_GROW_SPEED;
+        }
+        else
+        {
+            /* fade */
+            if (fire.brightness > SPARK_FADE_SPEED)
+            {
+                fire.brightness -= SPARK_FADE_SPEED;
+            }
+            else
+            {
+                fire.state = 0;
+                fire.delay = FIRECRACKER_MIN_DELAY +
+                    (fast_rand() %
+                    (FIRECRACKER_MAX_DELAY - FIRECRACKER_MIN_DELAY));
+            }
+        }
+    }
+
+    anim_tick++;
+}
+
+/* --------------------------------------------------------------------------------------------------------- */
+
+/* ==============================
+   SUNRISE CONFIG
+============================== */
+
+#define SUNRISE_DURATION_TICKS   6000   // 60 sec (tick = 10ms)
+#define SUNRISE_FREEZE_AT        0.75f  // freeze at 75% progress
+
+#define SUN_INDEX_START          20     // center of linear strip
+#define SUN_INDEX_END            50     // mid sky inside circle
+
+#define SUN_MAX_RADIUS           4
+#define SUN_MAX_BRIGHTNESS       120
+
+#define SKY_MAX_BRIGHTNESS       60
+
+static uint8_t clamp_u8(int16_t v)
+{
+    if (v < 0) return 0;
+    if (v > 255) return 255;
+    return (uint8_t)v;
+}
+
+static uint8_t lerp_u8(uint8_t a, uint8_t b, float t)
+{
+    return a + (uint8_t)((b - a) * t);
+}
+
+static void render_anim_sunrise(void)
+{
+    /* ---------- PROGRESS ---------- */
+
+    float progress = (float)anim_tick / SUNRISE_DURATION_TICKS;
+
+    if (progress > SUNRISE_FREEZE_AT)
+        progress = SUNRISE_FREEZE_AT;
+
+    /* normalize 0 → 1 until freeze point */
+    float norm = progress / SUNRISE_FREEZE_AT;
+    if (norm > 1.0f) norm = 1.0f;
+
+    /* ---------- SKY COLOR INTERPOLATION ---------- */
+
+    /* Night color */
+    uint8_t night_r = 0;
+    uint8_t night_g = 0;
+    uint8_t night_b = 5;
+
+    /* Morning color */
+    uint8_t morn_r = 40;
+    uint8_t morn_g = 28;
+    uint8_t morn_b = 10;
+
+    uint8_t sky_r = lerp_u8(night_r, morn_r, norm);
+    uint8_t sky_g = lerp_u8(night_g, morn_g, norm);
+    uint8_t sky_b = lerp_u8(night_b, morn_b, norm);
+
+    /* ---------- SUN POSITION ---------- */
+
+    float sun_pos_f = SUN_INDEX_START +
+        (SUN_INDEX_END - SUN_INDEX_START) * norm;
+
+    int16_t sun_pos = (int16_t)sun_pos_f;
+
+    uint8_t sun_radius = (uint8_t)(SUN_MAX_RADIUS * norm);
+    if (sun_radius < 1) sun_radius = 1;
+
+    uint8_t sun_brightness = (uint8_t)(SUN_MAX_BRIGHTNESS * norm);
+    if (sun_brightness > SUN_MAX_BRIGHTNESS)
+        sun_brightness = SUN_MAX_BRIGHTNESS;
+
+    /* ---------- DRAW ALL LEDS ---------- */
+
+    for (uint8_t i = 0; i < LED_COUNT; i++)
+    {
+        /* base sky gradient */
+
+        uint8_t r = sky_r;
+        uint8_t g = sky_g;
+        uint8_t b = sky_b;
+
+        /* vertical gradient inside circle region */
+        if (i >= 41)
+        {
+            float height = (float)(i - 41) / (80 - 41);
+            float fade = 1.0f - (height * 0.4f);
+
+            r *= fade;
+            g *= fade;
+            b *= fade;
+        }
+
+        /* horizon warm band (linear strip) */
+        if (i <= 40)
+        {
+            float dist_center = (float)(i - SUN_INDEX_START);
+            if (dist_center < 0) dist_center = -dist_center;
+
+            float horizon_glow = 1.0f - (dist_center / 20.0f);
+            if (horizon_glow < 0) horizon_glow = 0;
+
+            r += (uint8_t)(20 * norm * horizon_glow);
+            g += (uint8_t)(10 * norm * horizon_glow);
+        }
+
+        /* ---------- SUN DISC ---------- */
+
+        int16_t dist = i - sun_pos;
+        if (dist < 0) dist = -dist;
+
+        if (dist <= sun_radius)
+        {
+            float falloff = 1.0f - ((float)dist / sun_radius);
+
+            uint8_t sr = sun_brightness;
+            uint8_t sg = sun_brightness * 0.6f;
+            uint8_t sb = sun_brightness * 0.1f;
+
+            r += sr * falloff;
+            g += sg * falloff;
+            b += sb * falloff;
+        }
+
+        ws2812_set_pixel(i,
+                         clamp_u8(r),
+                         clamp_u8(g),
+                         clamp_u8(b));
+    }
+
+    /* ---------- TICK ---------- */
+
+    if (anim_tick < SUNRISE_DURATION_TICKS)
+        anim_tick++;
+}
+

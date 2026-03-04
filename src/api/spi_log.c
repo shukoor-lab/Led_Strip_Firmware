@@ -1,4 +1,9 @@
 #include "spi_log.h"
+#include <stdarg.h>
+#include <stdio.h>
+#include <string.h>
+
+char buffer[50];
 
 void SPI_init(void)
 {
@@ -22,12 +27,12 @@ void SPI_transfer(uint8_t data)
                 (1 << USICLK) |    // Enable clock strobe
                 (1 << USITC);      // Toggle clock
         
-        _delay_us(1);
+        _delay_us(100);
     }
     while (!(USISR & (1 << USIOIF)));
 }
 
-void SPI_send_string(const char *data, uint16_t len)
+void SPI_send_buffer(const char *data, uint16_t len)
 {
     for (uint16_t i = 0; i < len; i++)
     {
@@ -35,13 +40,20 @@ void SPI_send_string(const char *data, uint16_t len)
     }
 }
 
-void SPI_log(LogType type, uint8_t value)
+void SPI_printf(const char *format, ...)
 {
-    SPI_transfer(HEADER1);
-    SPI_transfer(HEADER2);
-    SPI_transfer((uint8_t)type);
-    SPI_transfer(value);
-    SPI_transfer(FOOTER1);
-    SPI_transfer(FOOTER2);
-    _delay_ms(10);
+
+    va_list args;
+    va_start(args, format);
+
+    // Safe formatted print into buffer
+    vsnprintf(buffer, sizeof(buffer), format, args);
+
+    va_end(args);
+
+    // Send generated string over SPI
+    for (uint16_t i = 0; i < strlen(buffer); i++)
+    {
+        SPI_transfer(buffer[i]);
+    }
 }

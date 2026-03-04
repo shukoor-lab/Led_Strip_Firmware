@@ -15,6 +15,12 @@ typedef enum {
     ANIM_FIRE,
     ANIM_WATER,
     ANIM_PACKETS,
+    ANIM_BLEED,
+    ANIM_STARS,
+    ANIM_AURORA,
+    ANIM_MOON,
+    ANIM_FIRECRACKER,
+    ANIM_SUNRISE,
     TOTAL_ANIMS
 } anim_t;
 

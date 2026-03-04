@@ -30,7 +30,7 @@ SRC = src/main.c \
       src/components/time.c \
       src/api/display.c \
       src/api/ir.c \
-      src/api/spi_log.c
+#       src/api/spi_log.c
 
 # ==== Object files inside build/ ====
 OBJ = $(SRC:%.c=$(BUILD_DIR)/%.o)
