@@ -9,20 +9,24 @@
 
 typedef enum {
     ANIM_OFF = 0,
+    ANIM_FILL,
+    ANIM_UNFILL,
+    ANIM_PACKETS,
     ANIM_BLINK,
     ANIM_RAINBOW,
     ANIM_THEATER,
     ANIM_FIRE,
     ANIM_WATER,
-    ANIM_PACKETS,
     ANIM_BLEED,
     ANIM_STARS,
-    ANIM_AURORA,
     ANIM_MOON,
     ANIM_FIRECRACKER,
-    ANIM_SUNRISE,
     TOTAL_ANIMS
 } anim_t;
+
+#define ANIM_START_INDEX  4
+
+extern float fill_progress;
 
 /* ============================= */
 /* Public API                    */

@@ -1,6 +1,8 @@
 #include "display.h"
 #include "ws2812b.h"
 
+float fill_progress = 0.0f;
+
 /* ============================= */
 /* Private State                 */
 /* ============================= */
@@ -23,10 +25,10 @@ static void render_anim_water(void);
 static void render_anim_packets(void);
 static void render_anim_bleed(void);
 static void render_anim_stars(void);
-static void render_anim_aurora(void);
 static void render_anim_moon(void);
 static void render_anim_firecracker(void);
-static void render_anim_sunrise(void);
+static void render_anim_fill(void);
+static void render_anim_unfill(void);
 
 /* ============================= */
 /* Animation Tick Lengths       */
@@ -55,6 +57,7 @@ void display_init(void) {
 void display_set_animation(anim_t anim)
 {
     current_anim = anim;
+    if(anim == ANIM_OFF) fill_progress = 0.0f;
 }
 
 anim_t display_get_animation(void)
@@ -110,10 +113,6 @@ void display_update(void)
             render_anim_stars();
             break;
 
-        case ANIM_AURORA:
-            render_anim_aurora();
-            break;
-
         case ANIM_MOON:
             render_anim_moon();
             break;
@@ -122,8 +121,12 @@ void display_update(void)
             render_anim_firecracker();
             break;
 
-        case ANIM_SUNRISE:
-            render_anim_sunrise();
+        case ANIM_FILL:
+            render_anim_fill();
+            break;
+
+        case ANIM_UNFILL:
+            render_anim_unfill();
             break;
 
         default:
@@ -152,14 +155,11 @@ static void render_anim_blink(void)
 {
     /* Blink red ON for half period, OFF for half period */
 
+    for(uint8_t i=0; i<LED_COUNT; i++) ws2812_set_pixel(i, 0, 0, 0);
+
     if (anim_tick < (BLINK_TICK_LEN / 2))
     {
         ws2812_set_pixel(0, 255, 0, 0); // Red
-    }
-    else
-    {
-        /* LEDs OFF */
-        ws2812_set_pixel(0, 0, 0, 0);
     }
 
     anim_tick++;
@@ -820,52 +820,6 @@ static void render_anim_stars(void)
 
 /* --------------------------------------------------------------------------------------------------------- */
 
-#define AURORA_TICK_LEN        65535
-
-#define AURORA_SPEED           1
-#define AURORA_INTENSITY       80
-#define AURORA_NOISE_DEPTH     25
-
-static uint8_t aurora_wave(uint16_t x)
-{
-    x &= 0xFF;
-    return (x < 128) ? x : 255 - x;
-}
-
-static void render_anim_aurora(void)
-{
-    ws2812_clear();
-
-    for (uint8_t i = 0; i < LED_COUNT; i++)
-    {
-        uint16_t motion = (i * 7) + (anim_tick * AURORA_SPEED);
-        uint8_t wave = aurora_wave(motion);
-
-        /* Organic turbulence */
-        uint8_t noise = fast_rand() & AURORA_NOISE_DEPTH;
-
-        uint8_t brightness = (wave >> 2) + noise;
-
-        if (brightness > AURORA_INTENSITY)
-            brightness = AURORA_INTENSITY;
-
-        /* Aurora color mix */
-        uint8_t r = brightness >> 4;             // very low red
-        uint8_t g = brightness;                  // strong green
-        uint8_t b = brightness >> 1;             // teal blend
-
-        /* Rare purple flick */
-        if ((fast_rand() & 0x3F) == 0)
-            r += brightness >> 2;
-
-        ws2812_set_pixel(i, r, g, b);
-    }
-
-    anim_tick++;
-}
-
-/* --------------------------------------------------------------------------------------------------------- */
-
 #define MOON_TICK_LEN       65535
 #define MOON_SPEED          1
 #define MOON_MAX_BRIGHT     20
@@ -1049,20 +1003,12 @@ static void render_anim_firecracker(void)
 
 /* --------------------------------------------------------------------------------------------------------- */
 
-/* ==============================
-   SUNRISE CONFIG
-============================== */
 
-#define SUNRISE_DURATION_TICKS   6000   // 60 sec (tick = 10ms)
-#define SUNRISE_FREEZE_AT        0.75f  // freeze at 75% progress
+#define FILL_TOTAL_TICKS      400
+#define FILL_FADE_WIDTH       10.0f
+#define FILL_MAX_BRIGHTNESS   80
 
-#define SUN_INDEX_START          20     // center of linear strip
-#define SUN_INDEX_END            50     // mid sky inside circle
-
-#define SUN_MAX_RADIUS           4
-#define SUN_MAX_BRIGHTNESS       120
-
-#define SKY_MAX_BRIGHTNESS       60
+static const float fill_step = 1.0f / FILL_TOTAL_TICKS;
 
 static uint8_t clamp_u8(int16_t v)
 {
@@ -1071,115 +1017,72 @@ static uint8_t clamp_u8(int16_t v)
     return (uint8_t)v;
 }
 
-static uint8_t lerp_u8(uint8_t a, uint8_t b, float t)
+void render_anim_fill(void)
 {
-    return a + (uint8_t)((b - a) * t);
-}
+    /* advance progress */
+    fill_progress += fill_step;
+    if (fill_progress > 1.0f)
+        fill_progress = 1.0f;
 
-static void render_anim_sunrise(void)
-{
-    /* ---------- PROGRESS ---------- */
-
-    float progress = (float)anim_tick / SUNRISE_DURATION_TICKS;
-
-    if (progress > SUNRISE_FREEZE_AT)
-        progress = SUNRISE_FREEZE_AT;
-
-    /* normalize 0 → 1 until freeze point */
-    float norm = progress / SUNRISE_FREEZE_AT;
-    if (norm > 1.0f) norm = 1.0f;
-
-    /* ---------- SKY COLOR INTERPOLATION ---------- */
-
-    /* Night color */
-    uint8_t night_r = 0;
-    uint8_t night_g = 0;
-    uint8_t night_b = 5;
-
-    /* Morning color */
-    uint8_t morn_r = 40;
-    uint8_t morn_g = 28;
-    uint8_t morn_b = 10;
-
-    uint8_t sky_r = lerp_u8(night_r, morn_r, norm);
-    uint8_t sky_g = lerp_u8(night_g, morn_g, norm);
-    uint8_t sky_b = lerp_u8(night_b, morn_b, norm);
-
-    /* ---------- SUN POSITION ---------- */
-
-    float sun_pos_f = SUN_INDEX_START +
-        (SUN_INDEX_END - SUN_INDEX_START) * norm;
-
-    int16_t sun_pos = (int16_t)sun_pos_f;
-
-    uint8_t sun_radius = (uint8_t)(SUN_MAX_RADIUS * norm);
-    if (sun_radius < 1) sun_radius = 1;
-
-    uint8_t sun_brightness = (uint8_t)(SUN_MAX_BRIGHTNESS * norm);
-    if (sun_brightness > SUN_MAX_BRIGHTNESS)
-        sun_brightness = SUN_MAX_BRIGHTNESS;
-
-    /* ---------- DRAW ALL LEDS ---------- */
+    float front = fill_progress * LED_COUNT;
 
     for (uint8_t i = 0; i < LED_COUNT; i++)
     {
-        /* base sky gradient */
+        float dist = front - i;
+        float intensity = 0.0f;
 
-        uint8_t r = sky_r;
-        uint8_t g = sky_g;
-        uint8_t b = sky_b;
-
-        /* vertical gradient inside circle region */
-        if (i >= 41)
+        if (dist >= 0)
         {
-            float height = (float)(i - 41) / (80 - 41);
-            float fade = 1.0f - (height * 0.4f);
-
-            r *= fade;
-            g *= fade;
-            b *= fade;
+            intensity = dist / FILL_FADE_WIDTH;
+            if (intensity > 1.0f)
+                intensity = 1.0f;
         }
 
-        /* horizon warm band (linear strip) */
-        if (i <= 40)
-        {
-            float dist_center = (float)(i - SUN_INDEX_START);
-            if (dist_center < 0) dist_center = -dist_center;
+        uint8_t brightness = (uint8_t)(FILL_MAX_BRIGHTNESS * intensity);
 
-            float horizon_glow = 1.0f - (dist_center / 20.0f);
-            if (horizon_glow < 0) horizon_glow = 0;
-
-            r += (uint8_t)(20 * norm * horizon_glow);
-            g += (uint8_t)(10 * norm * horizon_glow);
-        }
-
-        /* ---------- SUN DISC ---------- */
-
-        int16_t dist = i - sun_pos;
-        if (dist < 0) dist = -dist;
-
-        if (dist <= sun_radius)
-        {
-            float falloff = 1.0f - ((float)dist / sun_radius);
-
-            uint8_t sr = sun_brightness;
-            uint8_t sg = sun_brightness * 0.6f;
-            uint8_t sb = sun_brightness * 0.1f;
-
-            r += sr * falloff;
-            g += sg * falloff;
-            b += sb * falloff;
-        }
+        uint8_t r = brightness;
+        uint8_t g = brightness * 0.7f;
+        uint8_t b = brightness * 0.3f;
 
         ws2812_set_pixel(i,
                          clamp_u8(r),
                          clamp_u8(g),
                          clamp_u8(b));
     }
-
-    /* ---------- TICK ---------- */
-
-    if (anim_tick < SUNRISE_DURATION_TICKS)
-        anim_tick++;
 }
+
+void render_anim_unfill(void)
+{
+    /* retreat progress */
+    fill_progress -= fill_step * 4;
+    if (fill_progress < 0.0f)
+        fill_progress = 0.0f;
+
+    float front = fill_progress * LED_COUNT;
+
+    for (uint8_t i = 0; i < LED_COUNT; i++)
+    {
+        float dist = front - i;
+        float intensity = 0.0f;
+
+        if (dist >= 0)
+        {
+            intensity = dist / FILL_FADE_WIDTH;
+            if (intensity > 1.0f)
+                intensity = 1.0f;
+        }
+
+        uint8_t brightness = (uint8_t)(FILL_MAX_BRIGHTNESS * intensity);
+
+        uint8_t r = brightness;
+        uint8_t g = brightness * 0.7f;
+        uint8_t b = brightness * 0.3f;
+
+        ws2812_set_pixel(i,
+                         clamp_u8(r),
+                         clamp_u8(g),
+                         clamp_u8(b));
+    }
+}
+
 

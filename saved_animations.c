@@ -249,3 +249,153 @@ while (1)
     _delay_ms(20);
 }
 }
+
+
+static void render_anim_packets(void)
+{
+    uint8_t pointer[3] = {0, 14, 28};
+
+    if(anim_tick == 0){
+        ws2812_clear();
+    }
+
+    
+
+    if(count < 15){
+        uint8_t idx = anim_tick / 2.5;
+        if(idx < 81){
+            for (uint8_t j = 0; j < 3; j++)
+            {
+                for(int j = 0; j < 3; j++){
+                    if(idx - pointer[j] >= 0 && idx - pointer[j] < LED_COUNT) {
+                        ws2812_set_pixel(idx - pointer[j], 130, 90, 40);
+                    }
+                    if(idx - pointer[j] - PACKET_LEN >= 0 && idx - pointer[j] - PACKET_LEN < LED_COUNT) {
+                        ws2812_set_pixel(idx - pointer[j] - PACKET_LEN, 0, 0, 0);
+                    }
+                }
+            }
+        }else{
+            for(int j = 0; j < 3; j++){
+                uint16_t pv_idx = idx - pointer[j];
+                if (pv_idx >= LED_COUNT) {
+                    pv_idx -= 42;
+                }
+                if(pv_idx >= 40 && pv_idx < LED_COUNT) {
+                    ws2812_set_pixel(pv_idx, 130, 90, 40);
+                }
+                pv_idx = idx - pointer[j] - PACKET_LEN;
+                if (pv_idx >= LED_COUNT) {
+                    pv_idx -= 42;
+                }
+                if(pv_idx >= 0 && pv_idx < LED_COUNT) {
+                    ws2812_set_pixel(pv_idx, 0, 0, 0);
+                }
+            }
+        }
+        if (anim_tick >= PACKET_TICK_LEN) {
+            anim_tick = 203;
+            count++;
+        }
+    }else if(count < 17) {
+        if(count == 15){
+            anim_tick = 0;
+            ws2812_clear();
+            count++;
+        }
+        uint8_t idx = anim_tick / 2.5;
+
+        for (uint8_t j = 0; j < 3; j++)
+        {
+            for(int j = 0; j < 3; j++){
+                uint8_t start_idx = LED_COUNT - idx - pointer[j];
+                if(start_idx >= 0 && start_idx < LED_COUNT) {
+                    ws2812_set_pixel(start_idx, 130, 90, 40);
+                }
+                uint8_t end_idx = LED_COUNT - idx - pointer[j] + PACKET_LEN;
+                if(end_idx >= 0 && end_idx < LED_COUNT) {
+                    ws2812_set_pixel(end_idx, 0, 0, 0);
+                }
+            }
+        }
+        if (anim_tick >= PACKET_TICK_LEN) {
+            anim_tick = 0;
+            count++;
+        }
+    }else {
+        uint8_t idx = anim_tick / 2.5;
+        if(idx > 40) return;
+        
+        ws2812_set_pixel(idx, 130, 90, 40);
+    }
+
+    
+
+    anim_tick++;
+    
+}
+
+static void render_anim_packets(void)
+{
+    uint8_t pointer[3] = {0, 14, 28};
+
+    if(anim_tick == 0){
+        ws2812_clear();
+    }
+
+    uint8_t idx = anim_tick / 2.5;
+
+    if(count > 15){  
+        
+    }
+
+    if(count < 15){
+        if(idx < 81){
+        for (uint8_t j = 0; j < 3; j++)
+        {
+            for(int j = 0; j < 3; j++){
+                if(idx - pointer[j] >= 0 && idx - pointer[j] < LED_COUNT) {
+                    ws2812_set_pixel(idx - pointer[j], 130, 90, 40);
+                }
+                if(idx - pointer[j] - PACKET_LEN >= 0 && idx - pointer[j] - PACKET_LEN < LED_COUNT) {
+                    ws2812_set_pixel(idx - pointer[j] - PACKET_LEN, 0, 0, 0);
+                }
+            }
+        }
+        }else{
+            for(int j = 0; j < 3; j++){
+                uint16_t pv_idx = idx - pointer[j];
+                if (pv_idx >= LED_COUNT) {
+                    pv_idx -= 42;
+                }
+                if(pv_idx >= 40 && pv_idx < LED_COUNT) {
+                    ws2812_set_pixel(pv_idx, 130, 90, 40);
+                }
+                pv_idx = idx - pointer[j] - PACKET_LEN;
+                if (pv_idx >= LED_COUNT) {
+                    pv_idx -= 42;
+                }
+                if(pv_idx >= 0 && pv_idx < LED_COUNT) {
+                    ws2812_set_pixel(pv_idx, 0, 0, 0);
+                }
+            }
+        }
+        if (anim_tick >= PACKET_TICK_LEN){
+            anim_tick = 203;
+            count++;
+        }
+    }else{
+        if(count == 15){
+            ws2812_clear();
+            count++;
+        }
+        if(led_bar_idx <= 81){
+            ws2812_set_pixel(led_bar_idx, 130, 90, 40);
+            led_bar_idx++;
+        }else{
+            return;
+        }
+    }
+    anim_tick++;
+    
+}
